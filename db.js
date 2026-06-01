@@ -204,6 +204,9 @@ async function flushSyncQueue(fns) {
         await setDoc(doc(txCol, op.id), { ...op.data, _updatedAt: serverTimestamp() });
       } else if (op.type === 'delete') {
         await deleteDoc(doc(txCol, op.id));
+      } else if (op.type === 'export') {
+        const exportsCol = collection(_firestoreDb, 'exports');
+        await setDoc(doc(exportsCol, op.id), { ...op.data, _updatedAt: serverTimestamp() });
       }
     } catch (e) { console.warn('Sync queue flush error:', e); }
   }
@@ -258,6 +261,42 @@ export async function deleteTransaction(id) {
     addSyncLog(`🗑️  Deleted record from Firestore`, 'success');
   } catch (e) {
     addToSyncQueue({ type: 'delete', id });
+  }
+}
+
+/* ─── Public API: Save CSV Export to Cloud ───────────────────────────────── */
+export async function saveExportToCloud(exportRecord) {
+  const key = 'spendwise_exports';
+  const all = lsGet(key, []);
+  all.unshift(exportRecord);
+  if (all.length > 25) all.length = 25;
+  lsSet(key, all);
+
+  if (_isOfflineMode || !_isFirebaseReady) {
+    addToSyncQueue({ type: 'export', id: exportRecord.id, data: exportRecord });
+    addSyncLog(`📤 Export "${exportRecord.filename}" queued for cloud`, 'info');
+    return { ok: true, queued: true };
+  }
+
+  try {
+    const fns = await loadFirebase(lsGet(DB_KEY_CONFIG, null));
+    if (!fns) {
+      addToSyncQueue({ type: 'export', id: exportRecord.id, data: exportRecord });
+      return { ok: true, queued: true };
+    }
+    const { collection, doc, setDoc, serverTimestamp } = fns;
+    await setDoc(
+      doc(collection(_firestoreDb, 'exports'), exportRecord.id),
+      { ...exportRecord, _updatedAt: serverTimestamp() }
+    );
+    _lastSyncTime = new Date();
+    emit('sync', { lastSync: _lastSyncTime });
+    addSyncLog(`☁️  Export "${exportRecord.filename}" saved to cloud`, 'success');
+    return { ok: true, queued: false };
+  } catch (e) {
+    addToSyncQueue({ type: 'export', id: exportRecord.id, data: exportRecord });
+    addSyncLog(`⚠️  Export cloud upload failed — queued locally`, 'error');
+    return { ok: true, queued: true };
   }
 }
 

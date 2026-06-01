@@ -7,8 +7,9 @@ import {
   initDb, onDbEvent, getTransactionsLocal, getBudgetsLocal, saveBudgetsLocal,
   saveTransaction, deleteTransaction as dbDeleteTransaction, clearAllData,
   getSavedConfig, clearFirebaseConfig, manualSync as dbManualSync,
-  setOfflineMode, getDbStats, addSyncLog
+  setOfflineMode, getDbStats, addSyncLog, saveExportToCloud
 } from './db.js';
+import { fetchAIInsights } from './ai.js';
 
 /* ═══════════════════════════════════════════════════════════════════════════
    CONSTANTS
@@ -942,7 +943,7 @@ window.showToast = function(msg, type = 'info') {
 /* ═══════════════════════════════════════════════════════════════════════════
    CSV EXPORT
    ═══════════════════════════════════════════════════════════════════════════ */
-window.exportCSV = function() {
+window.exportCSV = async function() {
   const txs = state.transactions;
   if (txs.length === 0) { showToast('No transactions to export', 'warning'); return; }
 
@@ -953,15 +954,102 @@ window.exportCSV = function() {
     t.amount, t.payment || '', `"${(t.notes||'').replace(/"/g,'""')}"`
   ].join(','));
 
-  const csv  = [headers.join(','), ...rows].join('\n');
-  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
+  const csv      = [headers.join(','), ...rows].join('\n');
+  const filename = `spendwise_export_${new Date().toISOString().split('T')[0]}.csv`;
+  const blob     = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+  const url      = URL.createObjectURL(blob);
+  const a        = document.createElement('a');
   a.href = url;
-  a.download = `spendwise_export_${new Date().toISOString().split('T')[0]}.csv`;
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
-  showToast(`Exported ${txs.length} transactions as CSV`, 'success');
+
+  const cloud = await saveExportToCloud({
+    id: uid(),
+    filename,
+    rowCount: txs.length,
+    csv,
+    exportedAt: new Date().toISOString(),
+    month: state.analyticsMonth || currentMonthKey(),
+  });
+
+  showToast(
+    cloud.queued
+      ? `Downloaded ${txs.length} rows — cloud upload queued`
+      : `Downloaded ${txs.length} rows & saved to cloud`,
+    'success'
+  );
+};
+
+window.generateAIInsights = async function() {
+  const body = document.getElementById('ai-insights-body');
+  const btn  = document.getElementById('ai-insights-btn');
+  if (!body || !btn) return;
+
+  const m       = state.analyticsMonth || currentMonthKey();
+  const txs     = getMonthTransactions(m);
+  const metrics = calcMetrics(txs);
+  const lbl     = monthLabel(m);
+
+  if (txs.length === 0) {
+    body.innerHTML = '<p class="tx-empty">Add transactions for this month to get AI insights.</p>';
+    return;
+  }
+
+  const byCat = {};
+  txs.filter(t => t.type === 'expense').forEach(t => {
+    const c = getCategoryMeta(t.category).label;
+    byCat[c] = (byCat[c] || 0) + t.amount;
+  });
+  const topCats = Object.entries(byCat)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([c, a]) => `${c}: ₹${a.toLocaleString('en-IN')}`)
+    .join(', ');
+
+  const budgetLines = Object.keys(state.budgets).map(catId => {
+    const limit = state.budgets[catId];
+    const spent = txs.filter(t => t.type === 'expense' && t.category === catId)
+      .reduce((s, t) => s + t.amount, 0);
+    const cat = getCategoryMeta(catId);
+    return `${cat.label}: spent ₹${spent.toLocaleString('en-IN')} / limit ₹${limit.toLocaleString('en-IN')}`;
+  }).join('; ');
+
+  const prompt = `You are a friendly personal finance coach. Write a complete monthly analysis in plain text only (no markdown, no asterisks, no bold). Use clear paragraphs and numbered points (1. 2. 3.).
+
+Cover all of these in detail:
+- Overall spending vs income and savings rate
+- Top expense categories and what they mean
+- Budget status (over/under limits)
+- Specific actionable tips for next month
+- One encouraging closing sentence
+
+Use ₹ for amounts. Write at least 250 words. Do not stop early.
+
+Month: ${lbl}
+Income: ₹${metrics.income.toLocaleString('en-IN')}
+Expenses: ₹${metrics.expense.toLocaleString('en-IN')}
+Net balance: ₹${metrics.balance.toLocaleString('en-IN')}
+Savings rate: ${metrics.savings}%
+Top expense categories: ${topCats || 'none'}
+Budgets: ${budgetLines || 'none set'}
+Transaction count: ${txs.length}`;
+
+  btn.disabled = true;
+  btn.textContent = 'Analyzing…';
+  body.innerHTML = '<p class="ai-insights-loading">🤖 Generating insights…</p>';
+
+  try {
+    const text = await fetchAIInsights(prompt);
+    body.textContent = text;
+    showToast('AI insights ready', 'success');
+  } catch (err) {
+    body.innerHTML = `<p class="tx-empty">Could not load insights: ${escHtml(err.message)}</p>`;
+    showToast('AI insights failed — check API key', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '✨ Analyze Month';
+  }
 };
 
 /* ═══════════════════════════════════════════════════════════════════════════

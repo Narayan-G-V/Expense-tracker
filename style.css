@@ -573,6 +573,26 @@ body::after {
   gap: 20px;
 }
 .wide-card { grid-column: 1 / -1; }
+
+.ai-insights-card {
+  overflow: visible;
+}
+.ai-insights-body {
+  padding: 8px 4px 16px;
+  line-height: 1.75;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  font-family: 'Inter', 'Outfit', sans-serif;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: none;
+  overflow: visible;
+}
+.ai-insights-loading {
+  padding: 24px 12px;
+  text-align: center;
+  color: var(--accent-light);
+}
 .chart-card { display: flex; flex-direction: column; }
 .chart-wrapper {
   position: relative;
