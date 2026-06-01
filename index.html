@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart Expense Tracker — Your Financial Dashboard</title>
+  <meta name="description" content="Track income and expenses, view monthly reports, analyze spending with pie charts, and sync data to the cloud with Firebase Firestore." />
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+  <!-- Firebase SDK -->
+  <script type="module" src="db.js"></script>
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ─── SIDEBAR ────────────────────────────────────────────────────────── -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-icon">💰</div>
+      <div class="brand-text">
+        <span class="brand-name">SpendWise</span>
+        <span class="brand-tagline">Smart Tracker</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <button class="nav-item active" id="nav-dashboard" onclick="switchTab('dashboard')">
+        <span class="nav-icon">🏠</span>
+        <span class="nav-label">Dashboard</span>
+      </button>
+      <button class="nav-item" id="nav-analytics" onclick="switchTab('analytics')">
+        <span class="nav-icon">📊</span>
+        <span class="nav-label">Analytics</span>
+      </button>
+      <button class="nav-item" id="nav-transactions" onclick="switchTab('transactions')">
+        <span class="nav-icon">💳</span>
+        <span class="nav-label">Transactions</span>
+      </button>
+      <button class="nav-item" id="nav-budgets" onclick="switchTab('budgets')">
+        <span class="nav-icon">🎯</span>
+        <span class="nav-label">Budgets</span>
+      </button>
+      <button class="nav-item" id="nav-cloud" onclick="switchTab('cloud')">
+        <span class="nav-icon">☁️</span>
+        <span class="nav-label">Cloud Sync</span>
+        <span class="sync-indicator" id="sync-dot"></span>
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="cloud-status" id="cloud-status-bar">
+        <div class="status-dot" id="status-dot"></div>
+        <span id="status-label">Connecting…</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ─── MOBILE TOP BAR ─────────────────────────────────────────────────── -->
+  <header class="mobile-header">
+    <button class="hamburger" id="hamburger-btn" onclick="toggleSidebar()">☰</button>
+    <span class="mobile-title">SpendWise</span>
+    <button class="add-fab-small" onclick="openModal('add-tx-modal')">＋</button>
+  </header>
+  <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+  <!-- ─── MAIN CONTENT ───────────────────────────────────────────────────── -->
+  <main class="main-content">
+
+    <!-- ══ DASHBOARD TAB ═════════════════════════════════════════════════ -->
+    <section class="tab-panel active" id="tab-dashboard">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Dashboard</h1>
+          <p class="page-subtitle" id="dashboard-month-label">Overview for this month</p>
+        </div>
+        <div class="header-actions">
+          <select class="month-picker" id="month-picker" onchange="onMonthChange()"></select>
+          <button class="btn btn-primary" onclick="openModal('add-tx-modal')">＋ Add Entry</button>
+        </div>
+      </div>
+
+      <!-- Metric Cards -->
+      <div class="metrics-grid">
+        <div class="metric-card balance" id="card-balance">
+          <div class="metric-icon">💼</div>
+          <div class="metric-info">
+            <span class="metric-label">Net Balance</span>
+            <span class="metric-value" id="metric-balance">₹0.00</span>
+            <span class="metric-change" id="metric-balance-change"></span>
+          </div>
+        </div>
+        <div class="metric-card income" id="card-income">
+          <div class="metric-icon">📈</div>
+          <div class="metric-info">
+            <span class="metric-label">Total Income</span>
+            <span class="metric-value" id="metric-income">₹0.00</span>
+            <span class="metric-change positive" id="metric-income-change"></span>
+          </div>
+        </div>
+        <div class="metric-card expense" id="card-expense">
+          <div class="metric-icon">📉</div>
+          <div class="metric-info">
+            <span class="metric-label">Total Expenses</span>
+            <span class="metric-value" id="metric-expense">₹0.00</span>
+            <span class="metric-change negative" id="metric-expense-change"></span>
+          </div>
+        </div>
+        <div class="metric-card savings" id="card-savings">
+          <div class="metric-icon">🏦</div>
+          <div class="metric-info">
+            <span class="metric-label">Savings Rate</span>
+            <span class="metric-value" id="metric-savings">0%</span>
+            <span class="metric-change" id="metric-savings-change"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom grid: recent transactions + budget overview -->
+      <div class="dash-grid">
+        <!-- Recent Transactions -->
+        <div class="glass-card">
+          <div class="card-header">
+            <h2 class="card-title">Recent Transactions</h2>
+            <button class="link-btn" onclick="switchTab('transactions')">View All →</button>
+          </div>
+          <ul class="tx-list" id="recent-tx-list">
+            <li class="tx-empty">No transactions yet. Add your first entry!</li>
+          </ul>
+        </div>
+
+        <!-- Budget Snapshot -->
+        <div class="glass-card">
+          <div class="card-header">
+            <h2 class="card-title">Budget Overview</h2>
+            <button class="link-btn" onclick="switchTab('budgets')">Manage →</button>
+          </div>
+          <div class="budget-bars" id="budget-bars-dash">
+            <p class="tx-empty">No budgets set yet.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ ANALYTICS TAB ═════════════════════════════════════════════════ -->
+    <section class="tab-panel" id="tab-analytics">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Analytics</h1>
+          <p class="page-subtitle">Spending patterns &amp; insights</p>
+        </div>
+        <div class="header-actions">
+          <select class="month-picker" id="analytics-month-picker" onchange="onAnalyticsMonthChange()"></select>
+          <button class="btn btn-secondary" onclick="exportCSV()">⬇ Export CSV</button>
+        </div>
+      </div>
+
+      <div class="analytics-grid">
+        <!-- Pie Chart: Category Breakdown -->
+        <div class="glass-card chart-card">
+          <div class="card-header">
+            <h2 class="card-title">Expense Breakdown</h2>
+            <span class="card-badge" id="pie-month-label"></span>
+          </div>
+          <div class="chart-wrapper">
+            <canvas id="pie-chart"></canvas>
+          </div>
+          <div class="legend-list" id="pie-legend"></div>
+        </div>
+
+        <!-- Bar Chart: Monthly Comparison -->
+        <div class="glass-card chart-card">
+          <div class="card-header">
+            <h2 class="card-title">Monthly Comparison</h2>
+            <span class="card-badge">Last 6 Months</span>
+          </div>
+          <div class="chart-wrapper">
+            <canvas id="bar-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Line Chart: Cumulative Balance -->
+        <div class="glass-card chart-card wide-card">
+          <div class="card-header">
+            <h2 class="card-title">Balance Trend</h2>
+            <span class="card-badge" id="trend-month-label"></span>
+          </div>
+          <div class="chart-wrapper tall-chart">
+            <canvas id="line-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Income vs Expenses Doughnut -->
+        <div class="glass-card chart-card">
+          <div class="card-header">
+            <h2 class="card-title">Income vs Expenses</h2>
+            <span class="card-badge" id="donut-month-label"></span>
+          </div>
+          <div class="chart-wrapper">
+            <canvas id="donut-chart"></canvas>
+          </div>
+          <div class="donut-stats" id="donut-stats"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ TRANSACTIONS TAB ════════════════════════════════════════════════ -->
+    <section class="tab-panel" id="tab-transactions">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Transactions</h1>
+          <p class="page-subtitle" id="tx-count-label">All entries</p>
+        </div>
+        <div class="header-actions">
+          <button class="btn btn-primary" onclick="openModal('add-tx-modal')">＋ Add Entry</button>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="filter-bar">
+        <input type="text" class="search-input" id="tx-search" placeholder="🔍 Search transactions…" oninput="renderTransactions()" />
+        <select class="filter-select" id="filter-type" onchange="renderTransactions()">
+          <option value="all">All Types</option>
+          <option value="income">Income</option>
+          <option value="expense">Expense</option>
+        </select>
+        <select class="filter-select" id="filter-category" onchange="renderTransactions()">
+          <option value="all">All Categories</option>
+        </select>
+        <select class="filter-select" id="filter-month-tx" onchange="renderTransactions()">
+          <option value="all">All Months</option>
+        </select>
+        <button class="btn btn-ghost" onclick="clearFilters()">✕ Clear</button>
+      </div>
+
+      <!-- Transactions Table -->
+      <div class="glass-card table-card">
+        <table class="tx-table" id="tx-table">
+          <thead>
+            <tr>
+              <th onclick="sortBy('date')">Date <span class="sort-icon" id="sort-date">↕</span></th>
+              <th onclick="sortBy('description')">Description <span class="sort-icon" id="sort-description">↕</span></th>
+              <th>Category</th>
+              <th>Type</th>
+              <th onclick="sortBy('amount')">Amount <span class="sort-icon" id="sort-amount">↕</span></th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="tx-tbody">
+            <tr><td colspan="6" class="table-empty">No transactions found.</td></tr>
+          </tbody>
+        </table>
+        <div class="pagination" id="pagination"></div>
+      </div>
+    </section>
+
+    <!-- ══ BUDGETS TAB ════════════════════════════════════════════════════ -->
+    <section class="tab-panel" id="tab-budgets">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Budgets &amp; Goals</h1>
+          <p class="page-subtitle">Set spending limits by category</p>
+        </div>
+        <div class="header-actions">
+          <select class="month-picker" id="budget-month-picker" onchange="onBudgetMonthChange()"></select>
+          <button class="btn btn-primary" onclick="openModal('add-budget-modal')">＋ Set Budget</button>
+        </div>
+      </div>
+
+      <div class="budgets-grid" id="budgets-grid">
+        <div class="budget-empty glass-card">
+          <div class="empty-icon">🎯</div>
+          <p>No budgets set yet.</p>
+          <button class="btn btn-primary" onclick="openModal('add-budget-modal')">Create Your First Budget</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ CLOUD SYNC TAB ═════════════════════════════════════════════════ -->
+    <section class="tab-panel" id="tab-cloud">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Cloud Sync</h1>
+          <p class="page-subtitle">Firebase Firestore &amp; Real-time Database</p>
+        </div>
+      </div>
+
+      <div class="cloud-grid">
+        <!-- Connection Status Card -->
+        <div class="glass-card cloud-status-card">
+          <h2 class="card-title">Connection Status</h2>
+          <div class="big-status" id="big-status">
+            <div class="status-orb" id="status-orb"></div>
+            <div class="status-details">
+              <span class="status-name" id="status-name">Initializing…</span>
+              <span class="status-desc" id="status-desc">Setting up local persistence</span>
+            </div>
+          </div>
+          <div class="cloud-actions">
+            <button class="btn btn-primary" id="sync-btn" onclick="manualSync()">🔄 Sync Now</button>
+            <button class="btn btn-secondary" id="offline-toggle" onclick="toggleOffline()">📴 Go Offline</button>
+          </div>
+          <div class="sync-log" id="sync-log">
+            <p class="log-entry init">🟢 Application initialized</p>
+          </div>
+        </div>
+
+        <!-- Firebase Config Card -->
+        <div class="glass-card firebase-config-card">
+          <h2 class="card-title">Firebase Configuration</h2>
+          <p class="config-desc">Paste your Firebase project configuration below to enable real-time Firestore synchronization.</p>
+
+          <div class="form-group">
+            <label class="form-label" for="fb-api-key">API Key</label>
+            <input class="form-input" id="fb-api-key" type="text" placeholder="AIzaSy…" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="fb-project-id">Project ID</label>
+            <input class="form-input" id="fb-project-id" type="text" placeholder="my-project-id" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="fb-auth-domain">Auth Domain</label>
+            <input class="form-input" id="fb-auth-domain" type="text" placeholder="my-project.firebaseapp.com" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="fb-app-id">App ID</label>
+            <input class="form-input" id="fb-app-id" type="text" placeholder="1:123456:web:abc123" />
+          </div>
+
+          <div class="config-btns">
+            <button class="btn btn-primary" onclick="applyFirebaseConfig()">🔗 Connect to Firebase</button>
+            <button class="btn btn-ghost" onclick="clearFirebaseConfig()">✕ Clear &amp; Use Local</button>
+          </div>
+          <p class="config-hint">Without Firebase credentials, all data is stored securely in your browser's LocalStorage.</p>
+        </div>
+
+        <!-- Sync Statistics Card -->
+        <div class="glass-card sync-stats-card">
+          <h2 class="card-title">Sync Statistics</h2>
+          <div class="stats-list">
+            <div class="stat-row">
+              <span class="stat-name">Total Records</span>
+              <span class="stat-val" id="stat-total">0</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-name">Last Synced</span>
+              <span class="stat-val" id="stat-last-sync">Never</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-name">Pending Uploads</span>
+              <span class="stat-val" id="stat-pending">0</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-name">Storage Used</span>
+              <span class="stat-val" id="stat-storage">0 KB</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-name">Database Mode</span>
+              <span class="stat-val" id="stat-mode">LocalStorage</span>
+            </div>
+          </div>
+          <button class="btn btn-danger" onclick="confirmClearAll()">🗑️ Clear All Data</button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ─── ADD TRANSACTION MODAL ──────────────────────────────────────────── -->
+  <div class="modal-backdrop" id="add-tx-modal" onclick="closeModalOnBackdrop(event, 'add-tx-modal')">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-title" id="tx-modal-title">Add Transaction</h2>
+        <button class="modal-close" onclick="closeModal('add-tx-modal')">✕</button>
+      </div>
+
+      <!-- Type toggle -->
+      <div class="type-toggle">
+        <button class="type-btn active" id="type-expense-btn" onclick="setTxType('expense')">📉 Expense</button>
+        <button class="type-btn" id="type-income-btn" onclick="setTxType('income')">📈 Income</button>
+      </div>
+
+      <form id="tx-form" onsubmit="submitTransaction(event)">
+        <input type="hidden" id="tx-edit-id" value="" />
+        <input type="hidden" id="tx-type" value="expense" />
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="tx-amount">Amount (₹) *</label>
+            <input class="form-input" id="tx-amount" type="number" min="0.01" step="0.01" placeholder="0.00" required />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="tx-date">Date *</label>
+            <input class="form-input" id="tx-date" type="date" required />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="tx-description">Description *</label>
+          <input class="form-input" id="tx-description" type="text" placeholder="e.g. Grocery shopping" required />
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="tx-category">Category *</label>
+            <select class="form-input" id="tx-category" required>
+              <option value="">Select category…</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="tx-payment">Payment Method</label>
+            <select class="form-input" id="tx-payment">
+              <option value="Cash">Cash</option>
+              <option value="Card">Card</option>
+              <option value="UPI">UPI</option>
+              <option value="Net Banking">Net Banking</option>
+              <option value="Wallet">Wallet</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="tx-notes">Notes</label>
+          <textarea class="form-input" id="tx-notes" rows="2" placeholder="Optional note…"></textarea>
+        </div>
+
+        <div class="budget-alert-box" id="budget-alert-box" style="display:none"></div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" onclick="closeModal('add-tx-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="tx-submit-btn">Add Transaction</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ─── ADD BUDGET MODAL ───────────────────────────────────────────────── -->
+  <div class="modal-backdrop" id="add-budget-modal" onclick="closeModalOnBackdrop(event, 'add-budget-modal')">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h2 class="modal-title">Set Category Budget</h2>
+        <button class="modal-close" onclick="closeModal('add-budget-modal')">✕</button>
+      </div>
+      <form id="budget-form" onsubmit="submitBudget(event)">
+        <div class="form-group">
+          <label class="form-label" for="budget-category">Category</label>
+          <select class="form-input" id="budget-category" required>
+            <option value="">Select category…</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="budget-amount">Monthly Limit (₹)</label>
+          <input class="form-input" id="budget-amount" type="number" min="1" step="1" placeholder="5000" required />
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" onclick="closeModal('add-budget-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Budget</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ─── TOAST CONTAINER ────────────────────────────────────────────────── -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- ─── CONFIRM DIALOG ─────────────────────────────────────────────────── -->
+  <div class="modal-backdrop" id="confirm-modal" onclick="closeModalOnBackdrop(event, 'confirm-modal')">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h2 class="modal-title" id="confirm-title">Confirm Action</h2>
+        <button class="modal-close" onclick="closeModal('confirm-modal')">✕</button>
+      </div>
+      <p class="confirm-msg" id="confirm-msg">Are you sure?</p>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeModal('confirm-modal')">Cancel</button>
+        <button class="btn btn-danger" id="confirm-yes-btn">Yes, Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="db.js" type="module"></script>
+  <script src="app.js" type="module"></script>
+</body>
+</html>
